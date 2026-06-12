@@ -28,7 +28,17 @@ def fit_threshold(
 
     Label-free: requires only w_i, not pnl. Valid on hidden test.
     """
-    raise NotImplementedError
+    if num_days <= 0:
+        return float("-inf")
+
+    order = np.argsort(raw_score)[::-1]
+    daily_cumsum = np.cumsum(w[order]) / num_days
+
+    idx = int(np.searchsorted(daily_cumsum, target_turnover_per_day, side="left"))
+    if idx >= len(order):
+        return float("-inf")
+
+    return float(raw_score[order[idx]])
 
 
 def apply_filter(
@@ -41,4 +51,7 @@ def apply_filter(
     Edge trades (edge_mask=True) forced to f_i = 0 (free turnover, out of score).
     Returns int array of 0/1.
     """
-    raise NotImplementedError
+    f = (raw_score < threshold).astype(np.int8)
+    if edge_mask is not None:
+        f[edge_mask] = 0
+    return f

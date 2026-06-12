@@ -39,4 +39,41 @@ def make_filter(
     """
     if FITTED is None:
         raise RuntimeError("FITTED pipeline not set. Call run_train() first.")
-    raise NotImplementedError
+
+    from core.data import detect_symbol, compute_num_days, BYBIT_LAG_US
+    from core.targets.markout import add_mid
+    from core.model import predict
+    from strategies.liq_filter.train import _build_features
+    from strategies.liq_filter.threshold import fit_threshold, apply_filter
+    from strategies.liq_filter.strategy import strategy_raw_score
+
+    # Defensive copies so we don't mutate caller's frames.
+    trades = trades.copy().sort_values("timestamp").reset_index(drop=True)
+    bbo = bbo.copy().sort_values("timestamp").reset_index(drop=True)
+    liq_binance = liq_binance.copy().sort_values("timestamp").reset_index(drop=True)
+    liq_bybit = liq_bybit.copy()
+    liq_bybit["timestamp"] += BYBIT_LAG_US
+    liq_bybit = liq_bybit.sort_values("timestamp").reset_index(drop=True)
+
+    symbol = detect_symbol(trades)
+    # s is needed for direction_relativize; no compute_pnl on hidden test.
+    trades["s"] = np.where(trades["side"] == "buy", 1, -1)
+
+    bbo = add_mid(bbo)
+    num_days = compute_num_days(trades)
+    features = _build_features(trades, bbo, liq_binance, liq_bybit, FITTED.feature_config)
+
+    # Clipped notional weight — label-free, used only for threshold calibration.
+    w = (trades["price"] * trades["amount"]).clip(upper=100_000.0).to_numpy(dtype=np.float64)
+
+    result: dict[int, np.ndarray] = {}
+    for tau in TAUS:
+        if FITTED.use_ml:
+            raw_score = predict(FITTED.models[(symbol, tau)], features)
+        else:
+            raw_score = strategy_raw_score(features, trades)
+
+        threshold = fit_threshold(raw_score, w, num_days, FITTED.target_turnover_per_day)
+        result[tau] = apply_filter(raw_score, threshold)
+
+    return result
