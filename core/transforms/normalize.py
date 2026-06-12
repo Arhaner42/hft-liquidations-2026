@@ -10,7 +10,8 @@ import pandas as pd
 
 def zscore(series: pd.Series, window: int = 1000) -> pd.Series:
     """Rolling z-score: (x - rolling_mean) / rolling_std."""
-    raise NotImplementedError
+    roll  = series.rolling(window, min_periods=2)
+    return (series - roll.mean()) / roll.std()
 
 
 def clamp(series: pd.Series, lo: float = -5.0, hi: float = 5.0) -> pd.Series:

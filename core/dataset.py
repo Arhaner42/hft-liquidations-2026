@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from core.features.base import FeatureBlock
@@ -55,4 +56,16 @@ class DatasetBuilder:
         Target columns (markout, pnl) are NOT computed here — they are added
         by the strategy layer using core.targets.
         """
-        raise NotImplementedError
+        kwargs = dict(bbo=bbo, liq_binance=liq_binance, liq_bybit=liq_bybit)
+
+        blocks = [block.compute(trades, **kwargs) for block in self.features]
+        if blocks:
+            feature_df = pd.concat(blocks, axis=1)
+        else:
+            feature_df = pd.DataFrame(index=trades.index)
+
+        for transform in self.transforms:
+            feature_df = transform(feature_df)
+
+        mask = self.sampler.sample_mask(trades)
+        return feature_df.iloc[mask]

@@ -13,6 +13,20 @@ import numpy as np
 import pandas as pd
 
 
+_DEFAULT_PARAMS = {
+    "objective":       "huber",
+    "alpha":           0.9,
+    "n_estimators":    500,
+    "learning_rate":   0.05,
+    "num_leaves":      63,
+    "min_child_samples": 50,
+    "subsample":       0.8,
+    "colsample_bytree": 0.8,
+    "n_jobs":          -1,
+    "random_state":    42,
+}
+
+
 def train_model(
     features: pd.DataFrame,
     target: pd.Series,
@@ -32,9 +46,18 @@ def train_model(
     sample_weight : per-sample weight (e.g. clipped notional w_i)
     model_params  : override default LightGBM hyperparameters
     """
-    raise NotImplementedError
+    from lightgbm import LGBMRegressor
+
+    params = {**_DEFAULT_PARAMS, **(model_params or {})}
+    model  = LGBMRegressor(**params)
+    model.fit(
+        features,
+        target,
+        sample_weight=sample_weight,
+    )
+    return model
 
 
 def predict(model: Any, features: pd.DataFrame) -> np.ndarray:
     """Run model prediction. Returns float64 array, higher = better predicted trade."""
-    raise NotImplementedError
+    return model.predict(features).astype(np.float64)

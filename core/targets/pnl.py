@@ -7,6 +7,7 @@ Takes trades with markout columns (from compute_markout) and adds:
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 NOTIONAL_CLIP: float = 100_000.0
@@ -32,4 +33,20 @@ def compute_pnl(
         mid_30=100050 => pnl_30 = -(+1)*(50/100000)*10000 + 0.5 = -4.5 bps (bad fill)
         mid_30= 99950 => pnl_30 = -(+1)*(-50/100000)*10000 + 0.5 = +5.5 bps (good fill)
     """
-    raise NotImplementedError
+    trades = trades.copy()
+    trades["s"]        = np.where(trades["side"] == "buy", 1, -1).astype("int8")
+    trades["notional"] = trades["price"] * trades["amount"]
+    trades["w"]        = trades["notional"].clip(upper=NOTIONAL_CLIP)
+
+    for tau in taus:
+        edge_col = f"edge_{tau}"
+        mid_col  = f"mid_{tau}"
+        pnl = (
+            -trades["s"] * (trades[mid_col] - trades["price"]) / trades["price"] * 10_000
+            + MAKER_REBATE_BPS
+        )
+        if edge_col in trades.columns:
+            pnl = pnl.where(~trades[edge_col], other=np.nan)
+        trades[f"pnl_{tau}"] = pnl
+
+    return trades
