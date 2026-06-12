@@ -51,7 +51,48 @@ def score_one(
 
     Division-by-zero: returns NaN for the affected metric.
     """
-    raise NotImplementedError
+    from strategies.liq_filter.config import TURNOVER_FLOOR_PER_DAY
+
+    n_trades = len(pnl)
+    valid = ~np.isnan(pnl)
+    n_valid = int(valid.sum())
+    n_edge = n_trades - n_valid
+    n_kept = int((f == 0).sum())
+    n_filtered = int((f == 1).sum())
+
+    vw, vp, vf = w[valid], pnl[valid], f[valid]
+
+    def _wavg(vals, weights):
+        denom = weights.sum()
+        return float((weights * vals).sum() / denom) if denom > 0 else float("nan")
+
+    pnl_all = _wavg(vp, vw)
+    pnl_kept = _wavg(vp[vf == 0], vw[vf == 0])
+    pnl_filtered = _wavg(vp[vf == 1], vw[vf == 1])
+
+    if np.isnan(pnl_kept) or np.isnan(pnl_all):
+        score = float("nan")
+    else:
+        score = pnl_kept - pnl_all
+
+    kept_turnover = float((w * (1 - f)).sum() / num_days)
+    filtered_turnover = float((w * f).sum() / num_days)
+
+    return ScoreReport(
+        tau=tau,
+        score=score,
+        pnl_all=pnl_all,
+        pnl_kept=pnl_kept,
+        pnl_filtered=pnl_filtered,
+        kept_turnover_per_day=kept_turnover,
+        filtered_turnover_per_day=filtered_turnover,
+        constraint_ok=kept_turnover >= TURNOVER_FLOOR_PER_DAY,
+        n_trades=n_trades,
+        n_valid=n_valid,
+        n_kept=n_kept,
+        n_filtered=n_filtered,
+        n_edge=n_edge,
+    )
 
 
 def score_all(
@@ -60,7 +101,17 @@ def score_all(
     num_days: float,
 ) -> dict[int, ScoreReport]:
     """Run score_one for all taus. Unified output format."""
-    raise NotImplementedError
+    w = trades_with_pnl["w"].to_numpy(dtype=np.float64)
+    return {
+        tau: score_one(
+            trades_with_pnl[f"pnl_{tau}"].to_numpy(dtype=np.float64),
+            w,
+            f,
+            num_days,
+            tau,
+        )
+        for tau, f in f_by_tau.items()
+    }
 
 
 def reports_to_frame(
@@ -69,4 +120,23 @@ def reports_to_frame(
     experiment: str = "",
 ) -> pd.DataFrame:
     """Convert ScoreReport dict to a summary DataFrame for display."""
-    raise NotImplementedError
+    rows = []
+    for tau, r in reports.items():
+        rows.append({
+            "symbol": symbol,
+            "experiment": experiment,
+            "tau": r.tau,
+            "score": r.score,
+            "pnl_all": r.pnl_all,
+            "pnl_kept": r.pnl_kept,
+            "pnl_filtered": r.pnl_filtered,
+            "kept_turnover_per_day": r.kept_turnover_per_day,
+            "filtered_turnover_per_day": r.filtered_turnover_per_day,
+            "constraint_ok": r.constraint_ok,
+            "n_trades": r.n_trades,
+            "n_valid": r.n_valid,
+            "n_kept": r.n_kept,
+            "n_filtered": r.n_filtered,
+            "n_edge": r.n_edge,
+        })
+    return pd.DataFrame(rows)
